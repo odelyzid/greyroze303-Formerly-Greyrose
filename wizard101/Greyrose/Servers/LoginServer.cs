@@ -66,6 +66,12 @@ namespace Greyrose
         {
             try
             {
+                // Initialize player inventory state BEFORE authentication to ensure
+                // Wizard101 items/connections are properly set up for character auth
+                var charId = session.SelectedCharacterId;
+                if (charId.HasValue && charId.Value > 0)
+                    PlayerData.InitializeInventoryForAuth(charId.Value);
+                
                 session.Send(Handlers.BuildSessionOffer(session.SessionID));
                 ServerLog.WriteLine("Login: SESSION OFFER sent (session {0})", session.SessionID);
 

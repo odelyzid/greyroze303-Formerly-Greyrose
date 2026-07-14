@@ -86,14 +86,24 @@ namespace Greyrose
 
                 AccountRecord account = ResolveAccount(session);
                 CharacterRecord character = null;
-                if (account != null)
+                var accountChars = account != null
+                    ? DataStore.GetCharactersByAccountId(account.Id)
+                    : new List<CharacterRecord>();
+                if (accountChars.Count > 0)
                 {
-                    foreach (var ch in DataStore.GetCharactersByAccountId(account.Id))
+                    if (charGid == 0)
                     {
-                        if (ch.CharGid == charGid)
+                        character = accountChars[0];
+                    }
+                    else
+                    {
+                        foreach (var ch in accountChars)
                         {
-                            character = ch;
-                            break;
+                            if (ch.CharGid == charGid)
+                            {
+                                character = ch;
+                                break;
+                            }
                         }
                     }
                 }

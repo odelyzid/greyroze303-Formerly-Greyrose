@@ -128,8 +128,9 @@ namespace Greyrose.Data
         }
 
         /// <summary>
-        /// Returns the stored character blob unchanged. The client validates this
-        /// KingsIsle serialized payload; do not merge templates or patch offsets.
+        /// Returns the character info blob for the character list packet.
+        /// Strips equipment items (class marker 44 64 73 43) that reference templates
+        /// the client cannot resolve, causing "Failed to find type by name hash" errors.
         /// </summary>
         public static byte[] PrepareForClient(CharacterRecord character)
         {
@@ -137,9 +138,65 @@ namespace Greyrose.Data
                 return Array.Empty<byte>();
 
             byte[] blob = HexToBytes(character.CharacterInfoHex);
-            if (blob.Length == 0)
-                blob = HexToBytes(DefaultGameData.DefaultCharacterInfoHex);
-            return blob ?? Array.Empty<byte>();
+            return StripEquipmentItems(blob);
+        }
+
+        /// <summary>
+        /// Removes equipment item entries from a character info blob.
+        /// Equipment class markers (44 64 73 43) appear after the item-count field
+        /// at offset 60. Each item is 18 bytes. Stripping them and zeroing the count
+        /// produces a clean creation-format blob the character list can parse.
+        /// </summary>
+        static byte[] StripEquipmentItems(byte[] blob)
+        {
+            if (blob == null || blob.Length < 70)
+                return blob ?? Array.Empty<byte>();
+
+            int firstEquip = -1;
+            for (int i = 22; i <= blob.Length - 4; i++)
+            {
+                if (blob[i] == 0x44 && blob[i + 1] == 0x64 && blob[i + 2] == 0x73 && blob[i + 3] == 0x43)
+                {
+                    firstEquip = i;
+                    break;
+                }
+            }
+
+            if (firstEquip < 0)
+                return blob;
+
+            int icOffset = firstEquip - 4;
+            if (icOffset < 2 || icOffset + 4 > blob.Length)
+                return blob;
+
+            int itemCount = BitConverter.ToInt32(blob, icOffset);
+            if (itemCount <= 0 || itemCount > 16)
+                return blob;
+
+            int equipEnd = firstEquip + itemCount * 18;
+            if (equipEnd > blob.Length)
+                return blob;
+
+            int tailLen = blob.Length - equipEnd;
+            int newLen = firstEquip + tailLen;
+            var result = new byte[newLen];
+
+            Array.Copy(blob, 0, result, 0, firstEquip);
+            result[icOffset] = 0;
+            result[icOffset + 1] = 0;
+            result[icOffset + 2] = 0;
+            result[icOffset + 3] = 0;
+            if (tailLen > 0)
+                Array.Copy(blob, equipEnd, result, firstEquip, tailLen);
+
+            int payloadSize = newLen - 2;
+            if (payloadSize > 0 && payloadSize <= 0xFFFF)
+            {
+                result[0] = (byte)(payloadSize & 0xFF);
+                result[1] = (byte)((payloadSize >> 8) & 0xFF);
+            }
+
+            return result;
         }
 
         public static string PrepareForClientHex(CharacterRecord character)

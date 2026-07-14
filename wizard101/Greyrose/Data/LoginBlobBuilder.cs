@@ -121,7 +121,7 @@ namespace Greyrose.Data
                 return false;
 
             int statsOnly = GetStatsOnlyPrefixLength();
-            if (FindFirstOffset(stored, EquipmentMarker) >= 0)
+            if (FindEquipmentOffset(stored) >= 0)
                 return false;
             if (FindFirstOffset(stored, InventoryMarker) >= 0)
                 return false;
@@ -157,13 +157,13 @@ namespace Greyrose.Data
                     loginBlob = TruncateAt(loginBlob, inv);
                 // Galen capture gear uses template IDs the April 2019 client does not ship;
                 // equipment here triggers ClientWizInventoryBehavior / template 0x6F6E696A failures.
-                int firstEquip = FindFirstOffset(loginBlob, EquipmentMarker);
+                int firstEquip = FindEquipmentOffset(loginBlob);
                 if (firstEquip > 0)
                     loginBlob = TruncateAt(loginBlob, firstEquip);
             }
             else
             {
-                int firstEquip = FindFirstOffset(loginBlob, EquipmentMarker);
+                int firstEquip = FindEquipmentOffset(loginBlob);
                 if (firstEquip > 0)
                     loginBlob = TruncateAt(loginBlob, firstEquip);
                 else
@@ -202,7 +202,7 @@ namespace Greyrose.Data
                 return result;
             }
 
-            result.EquipmentMarkerOffset = FindFirstOffset(loginBlob, EquipmentMarker);
+            result.EquipmentMarkerOffset = FindEquipmentOffset(loginBlob);
             result.InventoryMarkerOffset = FindFirstOffset(loginBlob, InventoryMarker);
             result.BadTemplateOffset = FindFirstOffset(loginBlob, BadTemplateMarker);
 
@@ -258,11 +258,28 @@ namespace Greyrose.Data
                 return _statsOnlyPrefixLength.Value;
 
             byte[] def = DefaultLoginBlob.GetBytes();
-            int cut = def.Length > 0 ? FindFirstOffset(def, EquipmentMarker) : -1;
+            int cut = def.Length > 0 ? FindEquipmentOffset(def) : -1;
             if (cut < 0)
                 cut = def.Length > 0 ? FindFirstOffset(def, InventoryMarker) : -1;
             _statsOnlyPrefixLength = cut > 0 ? cut : 20;
             return _statsOnlyPrefixLength.Value;
+        }
+
+        /// <summary>
+        /// Finds the first equipment marker (0x73 0x09) that is NOT part of the blob header.
+        /// The first occurrence at offset ~20 is always a structural property type in the header;
+        /// real equipment entries appear later after the stats section.
+        /// </summary>
+        static int FindEquipmentOffset(byte[] data)
+        {
+            // Skip past the blob header (first 22 bytes always contain a structural 0x73 0x09)
+            int start = Math.Min(22, data.Length);
+            for (int i = start; i <= data.Length - EquipmentMarker.Length; i++)
+            {
+                if (MatchesAt(data, EquipmentMarker, i))
+                    return i;
+            }
+            return -1;
         }
 
         static byte[] TruncateAt(byte[] loginBlob, int cut)

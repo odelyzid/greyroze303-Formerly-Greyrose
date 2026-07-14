@@ -1,123 +1,66 @@
 # Greyrose — Wizard101 Private Server Emulator
 
-> Quick-and-dirty login/patch/game server emulator for Wizard101 client revision **r667549.Wizard_1_390**. Built to get in-game, not for accuracy.
+> Quick-and-dirty login/patch/game server emulator for Wizard101 client revision **r667549.Wizard_1_390**
 
-## Build
+## Quick Start
 
-- **Solution:** `wizard101/WizPS.sln` — single project `Greyrose` (C#, **.NET 8** SDK-style)
-- **Dependencies:** `Microsoft.Data.Sqlite` (SQLite database); BCL `System.IO.Compression.ZLibStream` for game blobs
-- **Requires:** .NET SDK 8.0 or later
-- **csproj quirks:** `ImplicitUsings` and `Nullable` are **disabled**; target framework is `net8.0-windows` on Windows, `net8.0` on Linux; UI/Branding code is conditionally compiled out on non-Windows
-- **Build:** `dotnet build wizard101/WizPS.sln`
-- **Run (dev, Windows GUI):** `dotnet run --project wizard101/Greyrose/Greyrose.csproj`
-- **Run (console only):** `dotnet run --project wizard101/Greyrose/Greyrose.csproj -- --console`
-- **Custom DB path:** `dotnet run --project wizard101/Greyrose/Greyrose.csproj -- --db <path>`
-- **Rebuild patch list only:** `dotnet run --project wizard101/Greyrose/Greyrose.csproj -- --build-patch-only`
-- **Minimal patch list (for patch error 16):** `dotnet run --project wizard101/Greyrose/Greyrose.csproj -- --build-patch-minimal`
-- **Full package patch list:** set `GREYROSE_FULL_PATCH=1` env var before `--build-patch-only`
-- **Validate LatestFileList.bin:** `dotnet run --project wizard101/Greyrose/Greyrose.csproj -- --validate-patch-bin`
-- **Validate/login-blob commands:**
-  - `--validate-login-blob [--char-id <id>]` — build + validate a character's login blob
-  - `--inspect-login-blob --char-id <id>` — detailed blob structure dump
-  - `--dump-zone-login-blob --char-id <id>` — hex dump of built blob
-  - `--import-zone-login-blob <file>` — import zone capture blob to Data/
-  - `--resanitize-player-blobs` — rebuild stored player login blobs after blob fixes
-- **Branding (WinForms only):**
-  - `--create-ico` — generate .ico from Assets/greyrose303.png
-  - `--apply-branding` — apply Greyrose launcher/server icons
-  - `powershell -File wizard101/Greyrose/Tools/ApplyGreyroseBranding.ps1` — patches executables
-- **Publish (single-file, self-contained):**
-  ```bash
-  dotnet publish wizard101/Greyrose/Greyrose.csproj -c Release -r win-x64 --self-contained true
-  ```
-- **Docker (multi-platform):** `./build.sh` — builds via `wizard101/Greyrose/Dockerfile`, extracts to `artifacts/{win-x64,linux-x64,linux-arm,linux-arm64}` (console-only; no WinForms on Linux)
-- **No tests, no CI, no linter/typecheck**
-
-## Run
-
-1. Add hosts entries (edit `C:\Windows\System32\drivers\etc\hosts` as Administrator):
+1. Edit hosts (`C:\Windows\System32\drivers\etc\hosts`):
    ```
    127.0.0.1 login.us.wizard101.com
    127.0.0.1 patch.us.wizard101.com
    ```
-   Login → port 12000 (launcher auth); patch → port 12500 (file-list/patching). Run `ipconfig /flushdns` after editing. Verify with `ping login.us.wizard101.com` — must reply from `127.0.0.1`, not `169.254.x.x`.
+   Run `ipconfig /flushdns`
 
-   **Troubleshooting DNS:** If ping shows `169.254.x.x`, remove duplicate/conflicting hosts entries, disable unused virtual adapters (Hyper-V, WSL, VPN), flush DNS, ensure only one `127.0.0.1` line per hostname.
-2. Point the game client at `127.0.0.1` (hosts or patched client).
-3. **Windows GUI:** launch Greyrose without args. Click **Start** after editing the database (servers do not auto-start in GUI mode).
-4. **Console / Linux / Docker:** pass `--console` — all three servers start immediately.
+2. Console (all platforms) — starts all three servers immediately:
+   ```bash
+   dotnet run --project wizard101/Greyrose/Greyrose.csproj -- --console
+   ```
 
-## Server Ports
+3. Windows GUI — launch Greyrose (servers auto-start):
+   ```bash
+   dotnet run --project wizard101/Greyrose/Greyrose.csproj
+   ```
 
-| Server | TCP   | UDP   | Notes |
-|--------|-------|-------|-------|
-| Login  | 12000 | —     | KIP protocol |
-| Patch  | 12500 | —     | KIP protocol (metadata/file-list requests) |
-| Patch  | 12501 | —     | HTTP (PatchFileServer — serves actual file bytes) |
-| Game   | 12170 | 12171 | UDP 12171 is advertised but **no UDP listener is implemented** |
+## Core Commands
 
-All TCP bind to `0.0.0.0`. Encryption key (same for all): `"but most of all, 11a10318 is my hero"`
+- `dotnet build wizard101/WizPS.sln` — build single C# project
+- `--db <path>` — use custom database path
 
-## Database
+## Build-time Flags
 
-- **File:** `greyrose.db` beside the executable, or `%AppData%\Greyrose\greyrose.db` if install folder is not writable
-- **Schema:** `wizard101/Greyrose/Data/Schema.sql` — tables `accounts`, `characters`, `player_state`
-- **Default account:** UserGID `4295088136144`, username `Greyrose`
-- **Seed:** on first run (empty DB), a default Ravenwood character is inserted from hardcoded packet data
-- **GUI tabs:** Accounts, Characters, Player State — full CRUD; toolbar **Initialize database** re-runs seed if empty
+- `--build-patch-only` — rebuild patch list metadata files
+- `--build-patch-minimal` — minimal patch list (error 16 fixes)
+- `--validate-patch-bin` — validate LatestFileList.bin
+- `--validate-login-blob [--char-id]` — test login-blob building
+- `--inspect-login-blob --char-id` — dump blob structure
+- `--dump-zone-login-blob --char-id` — hex dump blob
+- `--import-zone-login-blob <file>` — import zone capture
+- `--resanitize-player-blobs` — rebuild stored player login blobs
+- `--console` — force console mode (GUI otherwise)
 
 ## Architecture
 
-- **Entrypoint:** `Program.cs` — GUI on Windows by default (`UI/MainForm`); `--console` runs `Server.LS`, `Server.PS`, `Server.GS` in parallel
-- **`ServerLog`** — console output + `OnLine` event (GUI log tab subscribes)
-- **`Server`** — `partial class` split across `Servers/LoginServer.cs`, `Servers/PatchServer.cs`, `Servers/GameServer.cs`, `Servers/ServerLifecycle.cs`, `Servers/PatchFileServer.cs`
-- **`PatchFileServer`** — separate `HttpListener` on port 12501 (started first via `Server.StartPatchFileServer()`), serves file bytes from `Data/Patch/`
-- **`ClientSession`** — per-connection TCP state; `SelectedCharacterId`, `AccountUserGid` set during login flow
-- **`GameHandoff`** — bridges login server's character-select to the game server's TCP session (120-second timeout, single-session lock)
-- **`MessageParser`** reads raw bytes, validates `0xF00D` header, dispatches by SVCID:
-  - Control opcodes → `ControlMessages` (session offer, keepalive, session accept)
-  - `SVCID 1` → `BaseMessages` (ping/pong)
-  - `SVCID 2` → `ExtendedBaseMessages` (log-only stubs: raw text, force disconnect)
-  - `SVCID 5` → `GameMessages` (movement, attach/logincomplete, mark/recall — uses DB player state)
-  - `SVCID 7` → `LoginMessages` (auth, char list from DB, create/delete/select character)
-  - `SVCID 8` → `PatchMessages` (file list metadata requests — served as DML table-streams)
-  - `SVCID 12` → `WizardMessages` (log-only stub)
-  - `SVCID 52` → `QuestMessages` (log-only stub)
-- **`KIPacket` (`MessageCrafter.cs`)** — builder class for DML packets; has a **4096-byte backing buffer** and is **not thread-safe** (static backing fields)
-- **`DataHandler`** — reader helpers for DML field types
-- **`KinPacketFrame` / `GamePacketTrace`** — frame parser + live packet tracing (powers GUI GamePacketLogPanel)
-- **Player data pipeline:**
-  - `PlayerData` — load/save in-memory `PlayerStruct` through `DataStore` keyed by `SelectedCharacterId`
-  - `LoginBlobBuilder` constructs MSG_LOGINCOMPLETE blobs (detects creation vs. zone-capture vs. default sources)
-  - `CharacterInfoCodec` — hex/bytes, name extraction, dispatch-slot management
-  - `ZoneLoginPayloadBuilder` — compresses player blob via ZLibStream and wraps in zone-state prefix
-  - `DefaultZoneBlob` / `CreatedZoneBlob` — static zone-state prefixes bundled in the project
-  - `LoginBlobInspector` / `ZoneLoginBlobImporter` — blob validation and import tools
-- **DML table-stream tooling:** `DmlTableWriter`, `KipFrameBuilder`, `DmlServerListBuilder`, `DmlLatestFileListBuilder`, `DmlTableStreamValidator`
+Single `.cs` project with partial `Server` class:
+- `Servers/LoginServer.cs` — TCP 12000 (KIP auth, char mgmt)
+- `Servers/PatchServer.cs` — TCP 12500 (KIP metadata)
+- `Servers/PatchFileServer.cs` — HTTP 12501 (file serving)
+- `Servers/GameServer.cs` — TCP 12170 (player packets)
+- `ServerLifecycle` — starts PatchFileServer first (HTTP 12501)
+- `ClientSession` — per-connection state (AccountUserGid, SelectedCharacterId)
 
-## Key Conventions
+Player data pipeline:
+- Database (`greyrose.db`) → `PlayerData` ↔ `PlayerStruct`
+- `LoginBlobBuilder` creates blobs (creation/zone-capture/default)
+- `LoginBlobInspector` / `ZoneLoginBlobImporter` — blob tools
+- Static zone-state blobs bundled in project
 
-- All packets use **KIP (KingsIsle Networking Protocol)** framing: `0xF00D` + length(ushort) + payload
-- DML fields: `BYT/UBYT/SHRT/USHRT/INT/UINT/FLT/DBL/GID/STR/WSTR` — little-endian
-- Character list and login blobs come from the database (editable hex fields in GUI)
-- Comment-out patterns: unused handlers remain as commented code blocks (marker trails, jump-triggered stat updates)
+## Key Quirks
 
-## Protocol References
-
-- `wizard101/Greyrose/Documentation/Packets.txt` — KIP/DML format docs (sourced from Joshsora's libki wiki)
-- `wizard101/Greyrose/Documentation/Messages.txt` — how to extract message XML from `root.wad` via QuickBMS
-- `wizard101/Greyrose/Documentation/LoginServerList.md` — MSG_SERVERLIST encoding notes
-- External: `https://github.com/Joshsora/libki` — more accurate/complete implementation
-
-## Known Limitations
-
-- Session key is hardcoded; no real crypto
-- Auth debug-admits; DB defaults to first account
-- Patch TCP server (12500) sends metadata only; PatchFileServer HTTP (12501) serves file bytes
-- No zone transfer logic beyond the initial teleport to Ravenwood
-- `KIPacket` has a 4096-byte backing buffer — packets exceeding this will silently corrupt
-- `KIPacket` uses static backing fields — not thread-safe for concurrent clients
-- `MessageParser.Parse` passes the full read buffer without slicing to bytes actually read
-- UDP port 12171 is referenced in char-select handoff but not bound
-- Many login/game message IDs are log-only stubs (no response packets)
-- Docker/Linux builds exclude WinForms (`net8.0` only); GUI requires `net8.0-windows`
+- Static `KIPacket` backing buffer (4096 bytes, not thread-safe)
+- Hardcoded encryption key: `"but most of all, 11a10318 is my hero"`
+- Windows-only GUI (TargetFramework `net8.0-windows`), console mode required on Linux
+- No tests, linting, or CI in repository
+- ImplicitUsings and Nullable disabled in csproj
+- No UDP listener despite char-select referencing port 12171
+- Session key is static (no real crypto)
+- Auth admits all via first account (UserGID `4295088136144`)

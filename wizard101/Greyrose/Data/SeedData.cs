@@ -24,6 +24,14 @@ namespace Greyrose.Data
                 CharacterInfoHex = DefaultGameData.DefaultCharacterInfoHex
             });
 
+            var seedCharacter = new CharacterRecord
+            {
+                CharGid = DefaultGameData.DefaultCharGid,
+                ZoneGid = DefaultGameData.DefaultZoneGid,
+                CharacterInfoHex = DefaultGameData.DefaultCharacterInfoHex
+            };
+            var build = LoginBlobBuilder.BuildLoginBlobWithInfo(seedCharacter, null, DefaultLoginBlob.GetBytes());
+
             DataStore.SavePlayerState(new PlayerStateRecord
             {
                 CharacterId = charId,
@@ -31,11 +39,12 @@ namespace Greyrose.Data
                 Y = 4376,
                 Z = -28,
                 Rot = 5.55f,
-                LoginBlobHex = "",
+                LoginBlobHex = CharacterInfoCodec.BytesToHex(build.Blob),
                 ZoneBlobHex = DefaultZoneBlob.GetHex()
             });
 
-            ServerLog.WriteLine("Database seeded with default account and character.");
+            ServerLog.WriteLine("Database seeded with default account and character (login blob {0} bytes, source={1}).",
+                build.Blob.Length, build.Source);
         }
     }
 }

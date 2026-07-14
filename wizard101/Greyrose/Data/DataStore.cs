@@ -8,6 +8,7 @@ namespace Greyrose.Data
     public static class DataStore
     {
         const int DefaultPurchasedSlots = 5;
+        static bool _migrationDone;
 
         public static void Initialize(string dbPath = null)
         {
@@ -21,9 +22,56 @@ namespace Greyrose.Data
         public static void EnsureSeeded()
         {
             if (Database.IsEmpty())
+            {
                 SeedData.Apply();
+            }
             else
+            {
                 EnsureDefaultAccountSlots();
+                if (!_migrationDone)
+                {
+                    _migrationDone = true;
+                    MigrateStalePlayerBlobs();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Rebuilds stale LoginBlobHex values so they reflect the current
+        /// sanitization logic (FindEquipmentOffset, etc.).
+        /// </summary>
+        static void MigrateStalePlayerBlobs()
+        {
+            try
+            {
+                int migrated = 0;
+                foreach (var ch in GetAllCharacters())
+                {
+                    var state = GetPlayerState(ch.Id);
+                    if (state == null)
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(state.LoginBlobHex))
+                        continue;
+
+                    var build = LoginBlobBuilder.BuildLoginBlobWithInfo(ch, null, DefaultLoginBlob.GetBytes());
+                    string freshHex = CharacterInfoCodec.BytesToHex(build.Blob);
+                    if (!string.Equals(state.LoginBlobHex, freshHex, StringComparison.OrdinalIgnoreCase))
+                    {
+                        state.LoginBlobHex = freshHex;
+                        state.CharacterId = ch.Id;
+                        SavePlayerState(state);
+                        migrated++;
+                    }
+                }
+
+                if (migrated > 0)
+                    ServerLog.WriteLine("Migrated {0} stale player login blob(s) to current format.", migrated);
+            }
+            catch (Exception ex)
+            {
+                ServerLog.WriteLine("MigrateStalePlayerBlobs warning: {0}", ex.Message);
+            }
         }
 
         /// <summary>
@@ -329,6 +377,43 @@ namespace Greyrose.Data
             cmd.CommandText = "DELETE FROM player_state WHERE character_id=$id";
             cmd.Parameters.AddWithValue("$id", characterId);
             cmd.ExecuteNonQuery();
+        }
+
+        public static bool HasPlayer(long characterId)
+        {
+            return GetPlayerState(characterId) != null;
+        }
+
+        public static PlayerData.PlayerStruct GetPlayerData(long characterId)
+        {
+            var state = GetPlayerState(characterId);
+            if (state == null) return null;
+            return new PlayerData.PlayerStruct
+            {
+                CharacterId = state.CharacterId,
+                X = state.X,
+                Y = state.Y,
+                Z = state.Z,
+                Rot = state.Rot,
+                Marker_X = state.MarkerX,
+                Marker_Y = state.MarkerY,
+                Marker_Z = state.MarkerZ,
+                Marker_Rot = state.MarkerRot,
+            };
+        }
+
+        public static void SavePlayerData(long characterId, Dictionary<string, object> data)
+        {
+            var state = new PlayerStateRecord { CharacterId = characterId };
+            if (data.ContainsKey("X")) state.X = Convert.ToSingle(data["X"]);
+            if (data.ContainsKey("Y")) state.Y = Convert.ToSingle(data["Y"]);
+            if (data.ContainsKey("Z")) state.Z = Convert.ToSingle(data["Z"]);
+            if (data.ContainsKey("Rot")) state.Rot = Convert.ToSingle(data["Rot"]);
+            if (data.ContainsKey("Marker_X")) state.MarkerX = Convert.ToUInt16(data["Marker_X"]);
+            if (data.ContainsKey("Marker_Y")) state.MarkerY = Convert.ToUInt16(data["Marker_Y"]);
+            if (data.ContainsKey("Marker_Z")) state.MarkerZ = Convert.ToUInt16(data["Marker_Z"]);
+            if (data.ContainsKey("Marker_Rot")) state.MarkerRot = Convert.ToByte(data["Marker_Rot"]);
+            SavePlayerState(state);
         }
 
         static AccountRecord ReadAccount(SqliteDataReader r)

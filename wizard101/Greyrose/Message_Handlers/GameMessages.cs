@@ -261,10 +261,10 @@ namespace Greyrose
 
                 KIPacket temp = new KIPacket();
                 temp.Header(0, 0, 5, 220); //MSG_SERVERTELEPORT (SVCID:5, MSGID:221)
-                temp._USHRT(player.Marker_X); //X
-                temp._USHRT(player.Marker_Y); //Y
-                temp._USHRT(player.Marker_Z); //Z
-                temp._UBYT(player.Marker_Rot); //Rot
+                temp._USHRT((ushort)player.Marker_X); //X
+                temp._USHRT((ushort)player.Marker_Y); //Y
+                temp._USHRT((ushort)player.Marker_Z); //Z
+                temp._UBYT((byte)player.Marker_Rot); //Rot
                 temp._USHRT(15); //MobileID (It says GID, but ushrt is only two bytes ? So I'm going to assume it's a local id assigned to players on the current server. But how is it determined? Anyway, for galen's case, it's always 15)
                 return Tuple.Create(temp.Finalise(), 0, 0);
 
