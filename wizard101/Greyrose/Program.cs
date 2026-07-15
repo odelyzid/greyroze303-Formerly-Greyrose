@@ -67,6 +67,77 @@ namespace Greyrose
                 return;
             }
 
+            if (args.Contains("--hash-lookup"))
+            {
+                RunHashLookup(args);
+                return;
+            }
+
+            if (args.Contains("--empty-player-blob"))
+            {
+                LoginBlobBuilder.EmptyPlayerBlobMode = true;
+                Console.WriteLine("EMPTY PLAYER BLOB MODE ENABLED");
+            }
+
+            if (args.Contains("--minimal-player-blob"))
+            {
+                LoginBlobBuilder.MinimalPlayerBlobMode = true;
+                Console.WriteLine("MINIMAL PLAYER BLOB MODE ENABLED");
+            }
+
+            if (args.Contains("--full-player-blob"))
+            {
+                LoginBlobBuilder.FullPlayerBlobMode = true;
+                Console.WriteLine("FULL PLAYER BLOB MODE ENABLED (no sanitization)");
+            }
+
+            if (args.Contains("--raw-player-blob"))
+            {
+                LoginBlobBuilder.RawPlayerBlobMode = true;
+                Console.WriteLine("RAW PLAYER BLOB MODE ENABLED (byte-for-byte DefaultLoginBlob.bin)");
+            }
+
+            if (args.Contains("--fix-prop-count"))
+            {
+                for (int i = 0; i < args.Length - 1; i++)
+                {
+                    if (args[i] == "--fix-prop-count" && int.TryParse(args[i + 1], out int pc))
+                    {
+                        LoginBlobBuilder.FixPropCount = pc;
+                        Console.WriteLine("FIX PROP COUNT: {0}", pc);
+                        break;
+                    }
+                }
+            }
+
+            if (args.Contains("--trunc-debug"))
+            {
+                for (int i = 0; i < args.Length - 1; i++)
+                {
+                    if (args[i] == "--trunc-debug" && int.TryParse(args[i + 1], out int truncLen))
+                    {
+                        LoginBlobBuilder.TruncateDebugLength = truncLen;
+                        Console.WriteLine("TRUNCATE DEBUG MODE: {0} bytes", truncLen);
+                        break;
+                    }
+                }
+            }
+
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (args[i] == "--patch-bytes")
+                {
+                    string spec = args[i + 1];
+                    string[] parts = spec.Split(':');
+                    if (parts.Length == 2 && int.TryParse(parts[0], out int offset))
+                    {
+                        byte[] value = Convert.FromHexString(parts[1]);
+                        LoginBlobBuilder.PatchBytes.Add(Tuple.Create(offset, value));
+                        Console.WriteLine("PATCH BYTES: offset {0} <- {1}", offset, spec);
+                    }
+                }
+            }
+
 #if GREYROSE_WINFORMS
             if (args.Contains("--create-ico"))
             {
@@ -114,6 +185,11 @@ namespace Greyrose
             Console.WriteLine("Database: {0}", Database.Path);
         }
 
+        /// <summary>
+        /// Validate the login blob for a character, checking for equipment and inventory markers, bad templates, and other issues.
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
         static int RunValidateLoginBlob(string[] args)
         {
             WriteDatabasePath();
@@ -151,6 +227,11 @@ namespace Greyrose
             return v.Ok ? 0 : 1;
         }
 
+        /// <summary>
+        /// Import a zone-login blob from a file, saving it to the data directory for use in the server.
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
         static int RunImportZoneLoginBlob(string[] args)
         {
             string path = null;
@@ -180,6 +261,11 @@ namespace Greyrose
             return 0;
         }
 
+        /// <summary>
+        ///     Inspect a zone-login blob for a character, showing the parsed structure and any issues found.
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
         static int RunInspectLoginBlob(string[] args)
         {
             WriteDatabasePath();
@@ -248,6 +334,11 @@ namespace Greyrose
             return 0;
         }
 
+        /// <summary>
+        ///     Dump a zone-login blob for a character, showing the raw hex bytes and some basic info.
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
         static int RunDumpZoneLoginBlob(string[] args)
         {
             byte[] def = DefaultLoginBlob.GetBytes();
@@ -271,6 +362,10 @@ namespace Greyrose
             return 0;
         }
 
+        /// <summary>
+        ///    Resanitize all player blobs in the database, rebuilding them from character info and default blobs.
+        /// </summary>
+        /// <returns></returns>
         static int ResanitizePlayerBlobs()
         {
             WriteDatabasePath();
@@ -302,6 +397,289 @@ namespace Greyrose
 
             Console.WriteLine("Resanitized {0} character(s).", updated);
             return 0;
+        }
+
+        /// <summary>
+        ///     Brute-force WizHashString for a target hash value, checking known full names and prefix+suffix combinations.
+        /// </summary>
+        /// <param name="args"></param>
+        static void RunHashLookup(string[] args)
+        {
+            uint target = 0x6F756F0A;
+            Console.WriteLine("Brute-forcing WizHashString for target 0x{0:X8} ({1})...", target, target);
+
+            string[] knownFull = {
+                "ClientWizInventoryBehavior",
+                "WizInventoryBehavior",
+                "ClientInventoryBehavior",
+                "InventoryBehavior",
+                "ClientWizInventoryBehaviorItemList",
+                "WizInventoryBehaviorItemList",
+                "ClientInventoryItemList",
+                "InventoryItemList",
+                "ClientWizInventoryItemList",
+                "WizInventoryItemList",
+                "ClientItemList",
+                "ItemList",
+                "ObjectList",
+                "WizObjectList",
+                "ClientObjectList",
+                "WizInventoryObject",
+                "ClientWizInventoryObject",
+                "WizItemObject",
+                "ClientWizItemObject",
+                "WizInventoryEntry",
+                "ClientWizInventoryEntry",
+                "InventoryEntry",
+                "WizBehaviorList",
+                "ClientWizBehaviorList",
+                "BehaviorList",
+                "WizInactiveBehavior",
+                "ClientWizInactiveBehavior",
+                "InactiveBehavior",
+                "WizInactiveBehaviorList",
+                "ClientWizInactiveBehaviorList",
+                "InactiveBehaviorList",
+                "m_itemList",
+                "m_inactiveBehaviors",
+                "itemList",
+                "inactiveBehaviors",
+                "ObjectVector",
+                "WizObjectVector",
+                "ClientObjectVector",
+                "ObjectArray",
+                "WizObjectArray",
+                "ClientObjectArray",
+                "SharedObject",
+                "ClientSharedObject",
+                "WizSharedObject",
+                "SharedBehavior",
+                "ClientSharedBehavior",
+                "WizSharedBehavior",
+                "WorldObject",
+                "ClientWorldObject",
+                "WizWorldObject",
+                "CoreObject",
+                "ClientCoreObject",
+                "WizCoreObject",
+                "ClientObject",
+                "ClientBehavior",
+                "WizBehavior",
+                "WizItem",
+                "ClientItem",
+                "SharedInventory",
+                "ClientSharedInventory",
+                "WizSharedInventory",
+                "WizGear",
+                "ClientGear",
+                "WizEquipment",
+                "ClientEquipment",
+                "SharedEquipment",
+                "ClientSharedEquipment",
+                "WizSharedEquipment",
+                "WizEquipmentList",
+                "ClientWizEquipmentList",
+                "SharedEquipmentList",
+                "ClientSharedEquipmentList",
+                "WizInventoryList",
+                "ClientWizInventoryList",
+                "SharedInventoryList",
+                "ClientSharedInventoryList",
+                "WizGearList",
+                "ClientWizGearList",
+                "SharedGearList",
+                "ClientSharedGearList",
+                "WizItemData",
+                "ClientWizItemData",
+                "SharedItemData",
+                "ClientSharedItemData",
+                "WizItemInfo",
+                "ClientWizItemInfo",
+                "SharedItemInfo",
+                "ClientSharedItemInfo",
+                "WizObjectEntry",
+                "ClientWizObjectEntry",
+                "SharedObjectEntry",
+                "ClientSharedObjectEntry",
+                "WizObjectItem",
+                "ClientWizObjectItem",
+                "SharedObjectItem",
+                "ClientSharedObjectItem",
+                "ObjectEntry",
+                "ObjectItem",
+                "BehaviorObject",
+                "ClientBehaviorObject",
+                "WizBehaviorObject",
+                "SharedBehaviorObject",
+                "ClientSharedBehaviorObject",
+                "WizSharedBehaviorObject",
+                "WorldBehavior",
+                "ClientWorldBehavior",
+                "WizWorldBehavior",
+                "SharedWorldBehavior",
+                "ClientSharedWorldBehavior",
+                "WizSharedWorldBehavior",
+                "InventoryObject",
+                "ClientInventoryObject",
+                "SharedInventoryObject",
+                "ClientSharedInventoryObject",
+                "WizSharedInventoryObject",
+                "EquipmentObject",
+                "ClientEquipmentObject",
+                "SharedEquipmentObject",
+                "ClientSharedEquipmentObject",
+                "WizSharedEquipmentObject",
+                "WizInventoryBehaviorObject",
+                "ClientWizInventoryBehaviorObject",
+                "WizInventoryObjectList",
+                "ClientWizInventoryObjectList",
+                "WizInventoryObjectEntry",
+                "ClientWizInventoryObjectEntry",
+                "WizInventoryObjectItem",
+                "ClientWizInventoryObjectItem",
+                "WizInventoryObjectItemList",
+                "ClientWizInventoryObjectItemList",
+                "WizInventoryObjectVector",
+                "ClientWizInventoryObjectVector",
+                "WizInventoryObjectArray",
+                "ClientWizInventoryObjectArray",
+                "WizInventoryObjectSet",
+                "ClientWizInventoryObjectSet",
+                "ObjectStateSet",
+                "CoreObjectStateSet",
+                "ClientObjectStateSet",
+                "WizObjectStateSet",
+                "SharedObjectStateSet",
+                "SerializerObjectState",
+                "ClientSerializerObjectState",
+                "WizSerializerObjectState",
+                "SharedSerializerObjectState",
+                "PreLoadObject",
+                "CorePreLoadObject",
+                "ClientPreLoadObject",
+                "WizPreLoadObject",
+                "SharedPreLoadObject",
+                "ObjectTemplate",
+                "CoreObjectTemplate",
+                "ClientObjectTemplate",
+                "WizObjectTemplate",
+                "SharedObjectTemplate",
+                "TemplateObject",
+                "CoreTemplateObject",
+                "ClientTemplateObject",
+                "WizTemplateObject",
+                "SharedTemplateObject",
+            };
+
+            int found = 0;
+            foreach (string s in knownFull)
+            {
+                uint h = KiBinaryXml.WizHashString(s);
+                if (h == target)
+                {
+                    Console.WriteLine("  MATCH: \"{0}\" -> 0x{1:X8}", s, h);
+                    found++;
+                }
+            }
+            Console.WriteLine("  Checked {0} full names, {1} matches", knownFull.Length, found);
+            found = 0;
+
+            string[] prefixes = {
+                "Client", "Wiz", "Wizard", "Behavior", "BehaviorObject",
+                "Inventory", "Item", "Object", "World", "Shared",
+                "ClientWiz", "WizClient", "WizBehavior", "ClientBehavior",
+                "ClientWizInventory", "WizInventory", "ClientInventory",
+                "ObjectList", "ObjectVector", "Vector", "List", "Array",
+                "Template", "State", "Core", "Serializer",
+                "WizObject", "ClientObject", "SharedObject",
+                "WizShared", "ClientShared", "Shared",
+                "PreLoad", "CorePreLoad", "ClientPreLoad", "WizPreLoad",
+                "TemplateObject", "CoreTemplate", "ClientTemplate", "WizTemplate",
+                "ObjectState", "CoreObjectState", "ClientObjectState",
+                "WizObjectState", "SharedObjectState",
+                "SerializerObject", "CoreSerializerObject", "ClientSerializerObject",
+                "WizSerializerObject", "SharedSerializerObject",
+                "InventoryBehavior", "ClientInventoryBehavior", "WizInventoryBehavior",
+                "SharedInventoryBehavior", "ClientSharedInventoryBehavior",
+                "WizSharedInventoryBehavior",
+                "EquipmentBehavior", "ClientEquipmentBehavior", "WizEquipmentBehavior",
+                "SharedEquipmentBehavior", "ClientSharedEquipmentBehavior",
+                "WizSharedEquipmentBehavior",
+                "GearBehavior", "ClientGearBehavior", "WizGearBehavior",
+                "SharedGearBehavior", "ClientSharedGearBehavior",
+                "WizSharedGearBehavior",
+                "ItemBehavior", "ClientItemBehavior", "WizItemBehavior",
+                "SharedItemBehavior", "ClientSharedItemBehavior",
+                "WizSharedItemBehavior",
+                "BehaviorItem", "ClientBehaviorItem", "WizBehaviorItem",
+                "SharedBehaviorItem", "ClientSharedBehaviorItem",
+                "WizSharedBehaviorItem",
+                "BehaviorList", "ClientBehaviorList", "WizBehaviorList",
+                "SharedBehaviorList", "ClientSharedBehaviorList",
+                "WizSharedBehaviorList",
+                "BehaviorVector", "ClientBehaviorVector", "WizBehaviorVector",
+                "SharedBehaviorVector", "ClientSharedBehaviorVector",
+                "WizSharedBehaviorVector",
+                "ObjectBehavior", "ClientObjectBehavior", "WizObjectBehavior",
+                "SharedObjectBehavior", "ClientSharedObjectBehavior",
+                "WizSharedObjectBehavior",
+                "InventoryList", "ClientInventoryList", "WizInventoryList",
+                "SharedInventoryList", "ClientSharedInventoryList",
+                "WizSharedInventoryList",
+                "InventoryVector", "ClientInventoryVector", "WizInventoryVector",
+                "SharedInventoryVector", "ClientSharedInventoryVector",
+                "WizSharedInventoryVector",
+                "ItemList", "ClientItemList", "WizItemList",
+                "SharedItemList", "ClientSharedItemList",
+                "WizSharedItemList",
+                "ItemVector", "ClientItemVector", "WizItemVector",
+                "SharedItemVector", "ClientSharedItemVector",
+                "WizSharedItemVector",
+                "ObjectList", "ClientObjectList", "WizObjectList",
+                "SharedObjectList", "ClientSharedObjectList",
+                "WizSharedObjectList",
+                "ObjectVector", "ClientObjectVector", "WizObjectVector",
+                "SharedObjectVector", "ClientSharedObjectVector",
+                "WizSharedObjectVector",
+                "GearList", "ClientGearList", "WizGearList",
+                "SharedGearList", "ClientSharedGearList",
+                "WizSharedGearList",
+                "GearVector", "ClientGearVector", "WizGearVector",
+                "SharedGearVector", "ClientSharedGearVector",
+                "WizSharedGearVector",
+                "EquipmentList", "ClientEquipmentList", "WizEquipmentList",
+                "SharedEquipmentList", "ClientSharedEquipmentList",
+                "WizSharedEquipmentList",
+                "EquipmentVector", "ClientEquipmentVector", "WizEquipmentVector",
+                "SharedEquipmentVector", "ClientSharedEquipmentVector",
+                "WizSharedEquipmentVector",
+            };
+
+            string[] suffixes = {
+                "", "Item", "Items", "List", "Vector", "Array", "Set",
+                "Behavior", "Object", "State", "Data", "Info", "Entry",
+                "Type", "Class", "Template", "Config", "Manager",
+                "Inventory", "Equipment", "Gear", "Wand", "Pet",
+                "Client", "Server", "Core", "Base", "Root",
+                "Vector", "Array", "Set", "Map", "Dict",
+            };
+
+            Console.WriteLine("  Trying prefix+suffix combos...");
+            foreach (string p in prefixes)
+            {
+                foreach (string s in suffixes)
+                {
+                    string name = p + s;
+                    uint h = KiBinaryXml.WizHashString(name);
+                    if (h == target)
+                    {
+                        Console.WriteLine("  MATCH: \"{0}\" -> 0x{1:X8}", name, h);
+                        found++;
+                    }
+                }
+            }
+            Console.WriteLine("  Checked {0} prefix+suffix combos, {1} matches",
+                prefixes.Length * suffixes.Length, found);
         }
 
         static void RunConsoleServer()

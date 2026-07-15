@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Greyrose.Data
 {
@@ -14,12 +15,148 @@ namespace Greyrose.Data
         static readonly byte[] BadTemplateMarker = { 0x6A, 0x69, 0x6E, 0x6F }; // uint template 0x6F6E696A
         static int? _statsOnlyPrefixLength;
 
+        public static bool EmptyPlayerBlobMode;
+        public static bool MinimalPlayerBlobMode;
+        public static bool FullPlayerBlobMode;
+        public static bool RawPlayerBlobMode;
+        public static int FixPropCount = -1;
+        public static int TruncateDebugLength = -1;
+        public static List<Tuple<int, byte[]>> PatchBytes = new List<Tuple<int, byte[]>>();
+
         public static byte[] BuildLoginBlob(CharacterRecord character, PlayerStateRecord state, byte[] defaultLogin)
         {
             return BuildLoginBlobWithInfo(character, state, defaultLogin).Blob;
         }
 
         public static LoginBlobBuildInfo BuildLoginBlobWithInfo(
+            CharacterRecord character,
+            PlayerStateRecord state,
+            byte[] defaultLogin)
+        {
+            return ApplyFixPropCount(BuildLoginBlobWithInfoImpl(character, state, defaultLogin));
+        }
+
+        static LoginBlobBuildInfo ApplyFixPropCount(LoginBlobBuildInfo info)
+        {
+            if (FixPropCount < 0 || info?.Blob == null || info.Blob.Length < 8)
+                return info;
+            byte[] blob = (byte[])info.Blob.Clone();
+            // Root object property count lives at offset 6 as uint16 LE.
+            blob[6] = (byte)(FixPropCount & 0xFF);
+            blob[7] = (byte)((FixPropCount >> 8) & 0xFF);
+            ServerLog.WriteLine("  FIX PROP COUNT -> {0} (offset 6)", FixPropCount);
+            return new LoginBlobBuildInfo
+            {
+                Blob = blob,
+                Source = info.Source + "+fixprop" + FixPropCount,
+                IsCreatedCharacter = info.IsCreatedCharacter
+            };
+        }
+
+        static LoginBlobBuildInfo BuildLoginBlobWithInfoImpl(
+            CharacterRecord character,
+            PlayerStateRecord state,
+            byte[] defaultLogin)
+        {
+            if (EmptyPlayerBlobMode)
+            {
+                return new LoginBlobBuildInfo
+                {
+                    Blob = Array.Empty<byte>(),
+                    Source = "empty-debug",
+                    IsCreatedCharacter = false
+                };
+            }
+
+            if (MinimalPlayerBlobMode)
+            {
+                return new LoginBlobBuildInfo
+                {
+                    Blob = new byte[] { 0x68, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 },
+                    Source = "minimal-debug",
+                    IsCreatedCharacter = false
+                };
+            }
+
+            if (FullPlayerBlobMode)
+            {
+                if (defaultLogin == null || defaultLogin.Length == 0)
+                    defaultLogin = DefaultLoginBlob.GetBytes();
+                ulong charGid = (ulong)(character?.CharGid ?? DefaultGameData.DefaultCharGid);
+                ulong zoneGid = (ulong)(character?.ZoneGid ?? DefaultGameData.DefaultZoneGid);
+                byte[] fromDefault = PrepareForCharacter(defaultLogin, charGid, zoneGid);
+                MergeCharacterProfile(fromDefault, character);
+                return new LoginBlobBuildInfo
+                {
+                    Blob = fromDefault,
+                    Source = "full-debug",
+                    IsCreatedCharacter = false
+                };
+            }
+
+            if (RawPlayerBlobMode)
+            {
+                byte[] raw = DefaultLoginBlob.GetBytes();
+                return new LoginBlobBuildInfo
+                {
+                    Blob = raw ?? Array.Empty<byte>(),
+                    Source = "raw-debug",
+                    IsCreatedCharacter = false
+                };
+            }
+
+            if (TruncateDebugLength >= 0)
+            {
+                byte[] full = BuildLoginBlobWithInfoCore(character, state, defaultLogin).Blob;
+                if (full != null && full.Length > TruncateDebugLength)
+                {
+                    byte[] truncated = new byte[TruncateDebugLength];
+                    Array.Copy(full, truncated, TruncateDebugLength);
+                    return new LoginBlobBuildInfo
+                    {
+                        Blob = truncated,
+                        Source = "trunc-debug-" + TruncateDebugLength,
+                        IsCreatedCharacter = false
+                    };
+                }
+                return new LoginBlobBuildInfo
+                {
+                    Blob = full ?? Array.Empty<byte>(),
+                    Source = "trunc-debug-short",
+                    IsCreatedCharacter = false
+                };
+            }
+
+            return ApplyDebugPatches(BuildLoginBlobWithInfoCore(character, state, defaultLogin));
+        }
+
+        static LoginBlobBuildInfo ApplyDebugPatches(LoginBlobBuildInfo info)
+        {
+            if (PatchBytes.Count == 0 || info?.Blob == null || info.Blob.Length == 0)
+                return info;
+
+            byte[] blob = (byte[])info.Blob.Clone();
+            foreach (var patch in PatchBytes)
+            {
+                int offset = patch.Item1;
+                byte[] value = patch.Item2;
+                if (offset + value.Length <= blob.Length)
+                {
+                    Array.Copy(value, 0, blob, offset, value.Length);
+                    Console.WriteLine("  PATCH: offset {0} ({1}) <- {2}",
+                        offset, "0x" + offset.ToString("X"),
+                        BitConverter.ToString(value));
+                }
+            }
+            return new LoginBlobBuildInfo
+            {
+                Blob = blob,
+                Source = info.Source + "+patch",
+                IsCreatedCharacter = info.IsCreatedCharacter
+            };
+        }
+
+        static LoginBlobBuildInfo BuildLoginBlobWithInfoCore(
             CharacterRecord character,
             PlayerStateRecord state,
             byte[] defaultLogin)
@@ -258,9 +395,20 @@ namespace Greyrose.Data
                 return _statsOnlyPrefixLength.Value;
 
             byte[] def = DefaultLoginBlob.GetBytes();
-            int cut = def.Length > 0 ? FindEquipmentOffset(def) : -1;
-            if (cut < 0)
+            int equip = def.Length > 0 ? FindEquipmentOffset(def) : -1;
+            int cut;
+            if (equip > 4)
+            {
+                // The 4-byte equipment count immediately precedes the equipment
+                // marker. Keep it out of the stats-only prefix, otherwise the
+                // client reads a dangling item count and misparses a garbage
+                // template (e.g. 0x6F756F0A) on ClientWizInventoryBehavior.
+                cut = equip - 4;
+            }
+            else
+            {
                 cut = def.Length > 0 ? FindFirstOffset(def, InventoryMarker) : -1;
+            }
             _statsOnlyPrefixLength = cut > 0 ? cut : 20;
             return _statsOnlyPrefixLength.Value;
         }

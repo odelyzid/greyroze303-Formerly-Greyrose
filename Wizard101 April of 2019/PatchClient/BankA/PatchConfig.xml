@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?> 
   <root>
   <GameDataDirectory path="./" /> 
-  <PatchServerHostname host="patch.us.wizard101.com" /> 
+  <PatchServerHostname host="127.0.0.1" /> 
   <PatchServerPort port="12500" /> 
-  <LoginHostname host="login.us.wizard101.com" /> 
+  <LoginHostname host="127.0.0.1" /> 
   <LoginPort port="12000" /> 
   <GameClientExecutable file="WizardGraphicalClient.exe" /> 
   <CommandLine args="-L login.us.wizard101.com 12000" /> 
