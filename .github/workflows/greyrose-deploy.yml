@@ -51,7 +51,13 @@ jobs:
             $ver = "${{ inputs.version_override }}"
           } else {
             [xml]$csproj = Get-Content "${{ env.CSPROJ }}"
-            $ver = $csproj.Project.PropertyGroup.AssemblyVersion
+            $ver = $null
+            foreach ($pg in $csproj.Project.PropertyGroup) {
+              if ($pg.AssemblyVersion) {
+                $ver = $pg.AssemblyVersion
+                break
+              }
+            }
             if (-not $ver) { $ver = "1.0.0.0" }
           }
           $ver = $ver.Trim()
